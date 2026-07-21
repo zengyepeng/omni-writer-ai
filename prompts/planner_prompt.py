@@ -39,3 +39,33 @@ scene_type 说明：
 
 def build_planner_user_prompt(inspiration):
     return f"我的灵感是：{inspiration}\n请基于此生成前3卷的大纲。确保其中至少包含一个'negotiation'(智斗/谈判)场景。"
+
+
+def build_extend_prompt(book_title, synopsis, current_volumes_summary, protagonist_state, active_foreshadowing):
+    """续写下一卷大纲的提示词"""
+    return f"""请为以下小说续写下一卷大纲（第{current_volumes_summary['next_volume_num']}卷）：
+
+【书名】{book_title}
+【简介】{synopsis}
+【已有卷数】{current_volumes_summary['total_volumes']} 卷
+【最新卷标题】{current_volumes_summary['last_volume_title']}
+【最新卷核心冲突】{current_volumes_summary['last_volume_conflict']}
+【主角当前状态】{protagonist_state}
+【未回收伏笔】{active_foreshadowing}
+
+请生成新一卷的完整大纲，包含：
+- volume_title: 卷名
+- core_conflict: 核心矛盾与目标
+- chapter_outlines: 10-15个章节大纲（每个含 chapter_num, outline, scene_type）
+
+要求：
+1. 承接上一卷的结尾和伏笔
+2. 冲突升级，格局打开
+3. 至少包含一个 "negotiation" 智斗场景
+
+Output Format (严格JSON，不要输出任何多余文本)：
+{{
+  "volume_title": "...",
+  "core_conflict": "...",
+  "chapter_outlines": [...]
+}}"""

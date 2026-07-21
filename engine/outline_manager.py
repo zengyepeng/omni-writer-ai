@@ -1,14 +1,20 @@
 """
 Omni-Writer AI - 大纲管理器
-负责生成整书大纲、持久化存储、按章节序号逐章调度。
+负责生成整书大纲、持久化存储、按章节序号逐章调度、续写下一卷。
+支持多本书隔离存储。
 """
 import json
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class OutlineManager:
-    def __init__(self, outline_file="data/outline.json"):
-        self.outline_file = outline_file
+    def __init__(self, book_name="default"):
+        self.book_name = book_name
+        self.book_dir = os.path.join("data", "books", book_name)
+        self.outline_file = os.path.join(self.book_dir, "outline.json")
         self.outline_data = self.load_outline()
 
     def load_outline(self):
@@ -24,10 +30,10 @@ class OutlineManager:
             os.makedirs(os.path.dirname(self.outline_file), exist_ok=True)
             with open(self.outline_file, 'w', encoding='utf-8') as f:
                 json.dump(self.outline_data, f, ensure_ascii=False, indent=4)
-            print(f"[OutlineManager] 大纲已生成并保存：{self.outline_data.get('book_title', '未知书名')}")
+            logger.info(f"[OutlineManager] 大纲已生成并保存：{self.outline_data.get('book_title', '未知书名')}")
             return True
         except Exception as e:
-            print(f"[OutlineManager] 大纲解析失败: {e}")
+            logger.error(f"[OutlineManager] 大纲解析失败: {e}")
             return False
 
     def get_next_chapter_info(self, current_chapter_num):
@@ -43,7 +49,6 @@ class OutlineManager:
             if cumulative_chapters + len(vol_chapters) > chapter_index:
                 idx_in_vol = chapter_index - cumulative_chapters
                 ch_info = vol_chapters[idx_in_vol]
-                # 兼容旧版纯字符串大纲和新版字典大纲
                 if isinstance(ch_info, str):
                     return {"outline": ch_info, "scene_type": "normal"}
                 return {
@@ -53,6 +58,15 @@ class OutlineManager:
             cumulative_chapters += len(vol_chapters)
 
         return {"outline": "大纲已规划完毕，请根据前文伏笔自由推进剧情。", "scene_type": "normal"}
+
+    def get_total_chapters(self):
+        """获取已规划的总章节数"""
+        if not self.outline_data:
+            return 0
+        total = 0
+        for vol in self.outline_data.get('volumes', []):
+            total += len(vol.get('chapter_outlines', []))
+        return total
 
     def print_outline_summary(self):
         if not self.outline_data:
@@ -69,3 +83,33 @@ class OutlineManager:
                 ch_text = ch if isinstance(ch, str) else ch.get('outline', '')
                 print(f"    - 第{cumulative_chapters + i + 1}章: {ch_text}")
             cumulative_chapters += len(vol_chapters)
+
+    # ========== 大纲续写 ==========
+
+    def extend_outline(self, new_volume_json_str):
+        """将新生成的卷追加到大纲末尾"""
+        try:
+            clean_str = new_volume_json_str.replace("```json", "").replace("```", "").strip()
+            new_volume = json.loads(clean_str)
+
+            if not self.outline_data:
+                logger.error("[OutlineManager] 无基础大纲，无法续写")
+                return False
+
+            volumes = self.outline_data.get('volumes', [])
+            if not volumes:
+                logger.error("[OutlineManager] 基础大纲无卷，无法续写")
+                return False
+
+            # 确保 volume_number 正确
+            new_volume['volume_number'] = volumes[-1]['volume_number'] + 1
+            volumes.append(new_volume)
+
+            with open(self.outline_file, 'w', encoding='utf-8') as f:
+                json.dump(self.outline_data, f, ensure_ascii=False, indent=4)
+
+            logger.info(f"[OutlineManager] 已续写第 {new_volume['volume_number']} 卷：{new_volume.get('volume_title')}")
+            return True
+        except Exception as e:
+            logger.error(f"[OutlineManager] 大纲续写失败: {e}")
+            return False
