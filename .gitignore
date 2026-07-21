@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual env
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project data (generated content, sensitive)
+data/outline.json
+data/global_state.json
+data/chroma_db/
+
+# Environment
+.env
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
