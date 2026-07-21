@@ -286,6 +286,25 @@ def cmd_export(state_manager, book_name):
 
 
 def main():
+    # 配置预检
+    import os, sys
+    if not os.path.exists("config.yaml"):
+        console.print("[bold red]❌ 未找到 config.yaml 配置文件[/bold red]")
+        console.print("\n解决方法：")
+        console.print("  1. 双击运行 [bold]install.bat[/bold]（推荐，自动配置）")
+        console.print("  2. 复制 config.example.yaml 为 config.yaml 并填入 API Key")
+        console.print("  3. 运行 [bold]python demo_mode.py[/bold] 体验演示模式（无需 Key）")
+        sys.exit(1)
+
+    import yaml
+    with open("config.yaml", 'r', encoding='utf-8') as f:
+        _cfg = yaml.safe_load(f)
+    if _cfg['llm_config']['api_key'].startswith("sk-your"):
+        console.print("[bold red]⚠️  config.yaml 中的 API Key 还是占位符[/bold red]")
+        console.print("请替换为真实 DeepSeek API Key：")
+        console.print("https://platform.deepseek.com/api_keys")
+        sys.exit(1)
+
     console.print(Panel(
         "[bold green]🚀 Omni-Writer AI[/bold green]\n"
         "[dim]多书管理 | 章节回退 | 大纲续写 | 全书导出 | 章节浏览[/dim]",

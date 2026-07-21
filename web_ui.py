@@ -32,10 +32,37 @@ from prompts.redrawer_prompt import REDRAWER_SYSTEM_PROMPT, build_redrawer_user_
 from prompts.radar_prompt import RADAR_SYSTEM_PROMPT, build_radar_user_prompt
 
 # ================= 初始化 =================
+import sys
+
+if not os.path.exists("config.yaml"):
+    print("=" * 55)
+    print("  ❌ 未找到 config.yaml 配置文件")
+    print("=" * 55)
+    print()
+    print("  解决方法（任选其一）：")
+    print("  1. 双击运行 install.bat（推荐，自动配置）")
+    print("  2. 复制 config.example.yaml 为 config.yaml 并填入 API Key")
+    print("  3. 运行 python demo_mode.py 体验演示模式（无需 Key）")
+    print()
+    sys.exit(1)
+
 StateManager.migrate_legacy_data()
 
 router = LLMRouter()
 kb = KnowledgeBase()
+
+# API Key 预检
+_test_key = router.config['llm_config']['api_key']
+if _test_key.startswith("sk-your"):
+    print("=" * 55)
+    print("  ⚠️  config.yaml 中的 API Key 还是占位符")
+    print("=" * 55)
+    print()
+    print("  请把 config.yaml 里的 sk-your-api-key-here")
+    print("  替换为你的真实 DeepSeek API Key：")
+    print("  https://platform.deepseek.com/api_keys")
+    print()
+    sys.exit(1)
 
 current_book = "default"
 state_manager = StateManager(current_book)

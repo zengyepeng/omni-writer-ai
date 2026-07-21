@@ -16,6 +16,10 @@
   <img src="https://img.shields.io/badge/UI-CLI%20%7C%20Web-FF6F00.svg" alt="UI"/>
 </p>
 
+<p align="center">
+  <strong>👉 中文用户请看：<a href="快速上手.md">3 分钟快速上手指南</a>（小白友好，双击即用）</strong>
+</p>
+
 ---
 
 ## ✨ Features
@@ -67,18 +71,19 @@ Inspiration ─▶ Outline Planning ─▶ RAG Retrieval ─▶ Negotiation Sim
 
 ## 🚀 Quick Start
 
-### 1. Install
+### Windows (easiest)
+
+1. Install [Python 3.10+](https://www.python.org/downloads/) (check "Add Python to PATH")
+2. Double-click **`install.bat`** → paste your [DeepSeek API Key](https://platform.deepseek.com/api_keys)
+3. Double-click **`start.bat`** → pick Web UI or CLI
+4. Want a peek first? Choose **Demo mode** (no API key needed)
+
+### Manual Install
 
 ```bash
 cd omni-writer-ai
 pip install -r requirements.txt
-```
-
-### 2. Configure
-
-```bash
-cp config.example.yaml config.yaml
-# Edit config.yaml with your API keys (DeepSeek recommended for Chinese; OpenAI-compatible embedding)
+cp config.example.yaml config.yaml  # then edit with your API key
 ```
 
 Or set environment variables (higher priority):
@@ -90,20 +95,17 @@ export OMNI_WRITER_EMBEDDING_API_KEY="sk-xxx"
 ```
 
 > `config.yaml` is in `.gitignore` — your keys will never be committed.
+> One DeepSeek key covers both LLM and embedding (use `setup_config.py <key>` to auto-generate).
 
-### 3. Run — CLI
+### Run
 
 ```bash
-python main.py
+python main.py      # CLI mode
+python web_ui.py    # Web console at http://127.0.0.1:7860
+python demo_mode.py # Demo mode (no API key needed)
 ```
 
 On first run, enter a one-line inspiration (e.g. `cyberpunk cultivator who hacks the Heavenly Dao with code`). The system generates the outline, then press `n` to write the next chapter, `r` to redraw a paragraph, `q` to quit.
-
-### 4. Run — Web Console
-
-```bash
-python web_ui.py
-```
 
 Open http://127.0.0.1:7860 — use the **Creation Engine** tab to generate the outline, then the **Pipeline** tab to write chapters with live logs and inline redrawing.
 
@@ -111,6 +113,10 @@ Open http://127.0.0.1:7860 — use the **Creation Engine** tab to generate the o
 
 ```
 omni-writer-ai/
+├── install.bat              # one-click installer (Windows)
+├── start.bat                # one-click launcher (Web / CLI / Demo)
+├── demo_mode.py             # demo mode (no API key needed)
+├── setup_config.py          # interactive config generator
 ├── config.example.yaml      # API keys template (copy to config.yaml)
 ├── config.yaml              # your local config (gitignored)
 ├── requirements.txt
@@ -120,7 +126,8 @@ omni-writer-ai/
 │   ├── llm_router.py        # multi-model router + retry
 │   ├── state_manager.py     # state machine + chapter archive
 │   ├── knowledge_base.py    # ChromaDB RAG engine
-│   └── outline_manager.py   # outline planner & scheduler
+│   ├── outline_manager.py   # outline planner & scheduler
+│   └── exporter.py          # full-book exporter (TXT/MD)
 ├── prompts/
 │   ├── writer_prompt.py     # core draft generation
 │   ├── planner_prompt.py    # outline planning
