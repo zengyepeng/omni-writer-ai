@@ -67,7 +67,7 @@ def initialize_project():
 
 
 def main():
-    console.print("[bold green]🚀 启动Omni-Writer AI (带自检雷达)[/bold green]")
+    console.print("[bold green]🚀 启动 Omni-Writer AI (带自检雷达)[/bold green]")
 
     router, state_manager, kb, outline_manager = initialize_project()
 
@@ -85,7 +85,8 @@ def main():
         )
         kb.add_material(clean_material, source="量子修仙设定")
 
-    last_sanitized_text = ""  # 保存上一章文本，供局部重绘使用
+    # 尝试从磁盘恢复上一章文本（支持重绘）
+    last_sanitized_text = state_manager.get_latest_chapter_text() or ""
 
     while True:
         console.print("\n" + "=" * 50)
@@ -135,7 +136,11 @@ def main():
             )
             if replace.lower() == 'y':
                 last_sanitized_text = text_before + redrawn_text + text_after
-                console.print("[bold green]已替换。[/bold green]")
+                # 同步存档
+                current_ch = state_manager.state.get('current_chapter', 0)
+                if current_ch > 0:
+                    state_manager.save_chapter(current_ch, last_sanitized_text)
+                console.print("[bold green]已替换并同步存档。[/bold green]")
             continue
 
         elif cmd.lower() == 'n':
@@ -262,7 +267,7 @@ def main():
                 user_prompt=build_sanitizer_user_prompt(checked_text)
             )
 
-            # Step 8: 状态更新
+            # Step 8: 状态更新 + 章节存档
             final_output = (
                 f"{sanitized_text}\n\n<state_update_json>\n{json_part}\n</state_update_json>"
             )
@@ -270,6 +275,9 @@ def main():
                 "\n[bold yellow]🧠 正在更新长程记忆状态...[/bold yellow]"
             )
             state_manager.update_state_from_chapter(final_output)
+
+            # 存档章节
+            state_manager.save_chapter(current_ch, sanitized_text)
 
             console.print(
                 f"\n[bold magenta]📖 第 {current_ch} 章生成完毕 (已脱敏+已自检)：[/bold magenta]"

@@ -163,12 +163,15 @@ def generate_next_chapter_ui():
     )
     state_manager.update_state_from_chapter(final_output)
 
+    # 章节存档
+    state_manager.save_chapter(current_ch, sanitized_text)
+
     logs += "✅ 本章生成完毕！\n"
     yield logs, sanitized_text
 
 
 def redraw_ui(selected_text, instruction, current_chapter_text):
-    """局部重绘功能"""
+    """局部重绘功能（同步更新状态机和磁盘存档）"""
     if not selected_text or selected_text not in current_chapter_text:
         return "未能匹配到选定文本，请确保在上方文本框中选中了一段话。", current_chapter_text
 
@@ -185,7 +188,13 @@ def redraw_ui(selected_text, instruction, current_chapter_text):
     )
 
     new_chapter_text = text_before + redrawn_text + text_after
-    return "✨ 重绘成功，已替换文本！", new_chapter_text
+
+    # 同步存档到磁盘
+    current_ch = state_manager.state.get('current_chapter', 0)
+    if current_ch > 0:
+        state_manager.save_chapter(current_ch, new_chapter_text)
+
+    return "✨ 重绘成功，已替换并同步存档！", new_chapter_text
 
 
 # ================= Gradio 界面布局 =================

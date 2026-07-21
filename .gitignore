@@ -16,10 +16,14 @@ venv/
 *.swp
 *.swo
 
+# Config (contains API keys — never commit)
+config.yaml
+
 # Project data (generated content, sensitive)
 data/outline.json
 data/global_state.json
 data/chroma_db/
+data/chapters/
 
 # Environment
 .env

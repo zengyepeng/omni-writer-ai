@@ -1,21 +1,22 @@
 """
 Omni-Writer AI - 千万字状态机管理器
-负责读取、更新、压缩记忆，防止长篇小说人物状态崩溃。
+负责维护短/中/长期记忆、伏笔回收、主角状态追踪与章节落盘。
 """
 import json
 import os
+import re
 
 
 class StateManager:
     def __init__(self, state_file="data/global_state.json"):
         self.state_file = state_file
+        self.chapters_dir = "data/chapters"
         self.state = self.load_state()
 
     def load_state(self):
         if os.path.exists(self.state_file):
             with open(self.state_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        # 初始化空白状态
         return {
             "current_chapter": 0,
             "short_term_memory": {},
@@ -30,38 +31,94 @@ class StateManager:
         with open(self.state_file, 'w', encoding='utf-8') as f:
             json.dump(self.state, f, ensure_ascii=False, indent=4)
 
-    def update_state_from_chapter(self, state_update_json_str):
-        """解析大模型输出的 state_update_json 并更新状态库"""
+    @staticmethod
+    def extract_state_json(raw_text):
+        """从混有正文文本的输出中提取 <state_update_json> 内的 JSON 块"""
+        match = re.search(
+            r'<state_update_json>(.*?)</state_update_json>',
+            raw_text, re.DOTALL
+        )
+        if match:
+            json_str = match.group(1).strip()
+            # 清理可能的 markdown 包裹
+            json_str = json_str.replace("```json", "").replace("```", "").strip()
+            return json_str
+        return None
+
+    @staticmethod
+    def extract_chapter_text(raw_text):
+        """从混有状态 JSON 的输出中提取纯正文"""
+        match = re.search(
+            r'<state_update_json>(.*?)</state_update_json>',
+            raw_text, re.DOTALL
+        )
+        if match:
+            return raw_text[:match.start()].strip()
+        return raw_text.strip()
+
+    def update_state_from_chapter(self, raw_text):
+        """解析新章节的 JSON，更新状态机"""
+        json_str = self.extract_state_json(raw_text)
+        if not json_str:
+            print("[StateManager] 未检测到 <state_update_json>，状态未更新")
+            return False
+
         try:
-            # 清理可能存在的 markdown 标记
-            clean_str = state_update_json_str.replace("```json", "").replace("```", "").strip()
-            update_data = json.loads(clean_str)
+            state_update = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            print(f"[StateManager] JSON 解析失败: {e}")
+            return False
 
-            # 更新章节号
-            self.state['current_chapter'] += 1
+        # 更新章节号
+        self.state['current_chapter'] = state_update.get(
+            'chapter_number', self.state['current_chapter'] + 1
+        )
 
-            # 更新短期记忆（保留最近3章，这里简化处理）
-            self.state['short_term_memory'] = {
-                "chapter_summary": update_data.get("chapter_summary", ""),
-                "location": update_data.get("location_update", ""),
-                "power": update_data.get("power_update", "")
-            }
-
-            # 更新伏笔
-            new_fs = update_data.get("new_foreshadowing", [])
+        # 更新长期伏笔池
+        if 'long_term_memory_update' in state_update:
+            new_fs = state_update['long_term_memory_update'].get(
+                'new_foreshadowing', []
+            )
             if new_fs:
+                self.state['long_term_memory']['foreshadowing'].extend(new_fs)
                 self.state['active_foreshadowing'].extend(new_fs)
 
-            resolved_fs = update_data.get("resolved_foreshadowing", [])
-            if resolved_fs:
-                self.state['active_foreshadowing'] = [
-                    fs for fs in self.state['active_foreshadowing']
-                    if fs not in resolved_fs
-                ]
+        # 回收伏笔
+        if 'resolved_foreshadowing' in state_update:
+            resolved = state_update['resolved_foreshadowing']
+            self.state['active_foreshadowing'] = [
+                fs for fs in self.state['active_foreshadowing']
+                if fs not in resolved
+            ]
 
-            self.save_state()
-            print(f"[StateManager] 状态已更新，当前章节: {self.state['current_chapter']}")
-            return True
-        except Exception as e:
-            print(f"[StateManager] 状态解析失败: {e}")
-            return False
+        # 更新主角状态
+        if 'character_state_change' in state_update:
+            self.state['character_current_state'] = \
+                state_update['character_state_change']
+
+        self.save_state()
+        print("[StateManager] 状态机已更新并持久化")
+        return True
+
+    def save_chapter(self, chapter_num, text):
+        """将生成的章节正文存档到 data/chapters/"""
+        os.makedirs(self.chapters_dir, exist_ok=True)
+        filepath = os.path.join(
+            self.chapters_dir, f"chapter_{chapter_num:04d}.txt"
+        )
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(text)
+        print(f"[StateManager] 章节已存档: {filepath}")
+        return filepath
+
+    def get_latest_chapter_text(self):
+        """读取最近一章的正文（供重绘使用）"""
+        if not os.path.exists(self.chapters_dir):
+            return None
+        files = sorted(
+            f for f in os.listdir(self.chapters_dir) if f.endswith('.txt')
+        )
+        if not files:
+            return None
+        with open(os.path.join(self.chapters_dir, files[-1]), 'r', encoding='utf-8') as f:
+            return f.read()

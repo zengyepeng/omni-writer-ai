@@ -26,6 +26,9 @@
 - **📡 Originality Radar** — scans for "poison points" (Mary-Sue, plot holes, cliché phrases) and auto-rewrites below 80/100
 - **🛡️ Humanizer (Sanitizer)** — 4-step de-AI rewriting to dodge GPTZero-style detectors
 - **🖌️ Local Redrawer** — radical paragraph-level rewrite with zero shared verbs/adjectives
+- **💾 Chapter Archive** — every generated chapter auto-saved to `data/chapters/`
+- **🔄 Auto-Retry** — exponential backoff on all LLM calls (3 retries, up to 4s delay)
+- **🔑 Config Safety** — `config.yaml` gitignored; env-var override supported
 - **🖥️ Dual Interface** — interactive CLI + Gradio Web console with live pipeline logs
 
 ## 🏗️ Architecture
@@ -73,16 +76,20 @@ pip install -r requirements.txt
 
 ### 2. Configure
 
-Edit `config.yaml` and fill in your API keys (DeepSeek recommended for Chinese; OpenAI-compatible embedding):
-
-```yaml
-llm_config:
-  api_key: "sk-your-api-key-here"
-  base_url: "https://api.deepseek.com/v1"
-  embedding_api_key: "sk-your-embedding-api-key"
-  embedding_base_url: "https://api.openai.com/v1"
-  embedding_model: "text-embedding-3-small"
+```bash
+cp config.example.yaml config.yaml
+# Edit config.yaml with your API keys (DeepSeek recommended for Chinese; OpenAI-compatible embedding)
 ```
+
+Or set environment variables (higher priority):
+
+```bash
+export OMNI_WRITER_API_KEY="sk-xxx"
+export OMNI_WRITER_BASE_URL="https://api.deepseek.com/v1"
+export OMNI_WRITER_EMBEDDING_API_KEY="sk-xxx"
+```
+
+> `config.yaml` is in `.gitignore` — your keys will never be committed.
 
 ### 3. Run — CLI
 
@@ -104,13 +111,14 @@ Open http://127.0.0.1:7860 — use the **Creation Engine** tab to generate the o
 
 ```
 omni-writer-ai/
-├── config.yaml              # API keys & model routing
+├── config.example.yaml      # API keys template (copy to config.yaml)
+├── config.yaml              # your local config (gitignored)
 ├── requirements.txt
 ├── main.py                  # CLI entry point
 ├── web_ui.py                # Gradio web console
 ├── engine/
-│   ├── llm_router.py        # multi-model router
-│   ├── state_manager.py     # long-novel state machine
+│   ├── llm_router.py        # multi-model router + retry
+│   ├── state_manager.py     # state machine + chapter archive
 │   ├── knowledge_base.py    # ChromaDB RAG engine
 │   └── outline_manager.py   # outline planner & scheduler
 ├── prompts/
@@ -121,7 +129,7 @@ omni-writer-ai/
 │   ├── sanitizer_prompt.py  # humanizer
 │   ├── redrawer_prompt.py   # local redraw
 │   └── material_prompt.py   # material structuring
-└── data/                    # runtime state & chroma db
+└── data/                    # runtime state, chroma db, chapter archives
 ```
 
 ## 🗺️ Roadmap

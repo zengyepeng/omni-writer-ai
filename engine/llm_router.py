@@ -1,9 +1,33 @@
 """
 Omni-Writer AI - 多模型混合路由调度器
-根据任务类型自动切换模型，实现极致性价比。
+根据任务类型自动切换模型，支持环境变量覆盖配置，内置指数退避重试。
 """
+import os
+import time
 import yaml
 from openai import OpenAI
+
+
+def retry_on_failure(max_retries=3, base_delay=1.0):
+    """指数退避重试装饰器"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        print(f"[Router] 请求失败 ({e})，{delay:.1f}s 后重试 "
+                              f"({attempt + 1}/{max_retries})...")
+                        time.sleep(delay)
+                    else:
+                        print(f"[Router] 重试 {max_retries} 次后仍失败: {e}")
+            raise last_exception
+        return wrapper
+    return decorator
 
 
 class LLMRouter:
@@ -11,12 +35,16 @@ class LLMRouter:
         with open(config_path, 'r', encoding='utf-8') as f:
             self.config = yaml.safe_load(f)
 
-        self.client = OpenAI(
-            api_key=self.config['llm_config']['api_key'],
-            base_url=self.config['llm_config']['base_url']
-        )
+        llm_cfg = self.config['llm_config']
+
+        # 环境变量优先于配置文件
+        api_key = os.environ.get('OMNI_WRITER_API_KEY') or llm_cfg['api_key']
+        base_url = os.environ.get('OMNI_WRITER_BASE_URL') or llm_cfg['base_url']
+
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.router_config = self.config['model_router']
 
+    @retry_on_failure(max_retries=3, base_delay=1.0)
     def chat(self, task_type, system_prompt, user_prompt):
         """统一调用接口：根据任务类型自动选择模型和参数"""
         if task_type not in self.router_config:

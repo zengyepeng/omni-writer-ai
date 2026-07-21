@@ -5,6 +5,7 @@ Omni-Writer AI - 多源素材库与 RAG 检索引擎
 import chromadb
 from openai import OpenAI
 import yaml
+import hashlib
 
 
 class KnowledgeBase:
@@ -21,8 +22,9 @@ class KnowledgeBase:
         # 初始化 ChromaDB 本地持久化客户端
         self.db_path = "data/chroma_db"
         self.client = chromadb.PersistentClient(path=self.db_path)
-        # 获取或创建一个名为 "novel_materials" 的集合
-        self.collection = self.client.get_or_create_collection(name="novel_materials")
+        self.collection = self.client.get_or_create_collection(
+            name="novel_materials"
+        )
 
         print(f"[KnowledgeBase] 初始化完成，当前素材库共有 {self.collection.count()} 条素材。")
 
@@ -34,16 +36,20 @@ class KnowledgeBase:
         )
         return response.data[0].embedding
 
+    @staticmethod
+    def _make_doc_id(text):
+        """使用 SHA256 哈希作为确定性文档 ID"""
+        return hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]
+
     def add_material(self, text, source="未知来源"):
-        """将一段素材文本入库"""
+        """将一段素材文本入库（upsert，重复插入安全）"""
         if not text.strip():
             return
 
         embedding = self._get_embedding(text)
-        # 使用文本的 hash 值作为唯一 ID，防止重复插入
-        doc_id = str(hash(text))
+        doc_id = self._make_doc_id(text)
 
-        self.collection.add(
+        self.collection.upsert(
             embeddings=[embedding],
             documents=[text],
             metadatas=[{"source": source}],
@@ -62,12 +68,10 @@ class KnowledgeBase:
             n_results=top_k
         )
 
-        # 提取检索到的文档内容
         retrieved_docs = results.get('documents', [[]])[0]
         if not retrieved_docs:
             return "未检索到相关素材。"
 
-        # 格式化输出
         formatted_results = []
         for i, doc in enumerate(retrieved_docs):
             formatted_results.append(f"[参考素材{i+1}] {doc}")
