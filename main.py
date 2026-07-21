@@ -3,7 +3,7 @@ Omni-Writer AI (全栈工业化终局版)
 CLI 命令行入口 —— 交互式网文创作流水线
 
 流水线：灵感 -> 大纲 -> RAG检索 -> 谈判模拟 -> 正文生成 -> 雷达自检 -> 脱敏精修 -> 状态更新
-支持：多本书管理 | 章节回退 | 大纲续写 | 全书导出
+支持：多本书管理 | 章节回退 | 大纲续写 | 全书导出 | 章节浏览 | 帮助
 """
 
 from engine.llm_router import LLMRouter
@@ -22,8 +22,11 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.text import Text
 import re
 import json
+import time
 import logging
 
 logging.basicConfig(
@@ -46,6 +49,19 @@ def extract_json_from_text(text):
     return None
 
 
+def spinner_task(description, func, *args, **kwargs):
+    """带加载动画的任务执行"""
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True
+    ) as progress:
+        progress.add_task(description, total=None)
+        result = func(*args, **kwargs)
+    return result
+
+
 def select_book():
     """选择或创建书籍"""
     StateManager.migrate_legacy_data()
@@ -54,8 +70,12 @@ def select_book():
     if books:
         console.print("\n[bold cyan]📚 已有书籍：[/bold cyan]")
         for i, b in enumerate(books, 1):
-            console.print(f"  {i}. {b}")
-        console.print(f"  {len(books) + 1}. [新建书籍]")
+            sm = StateManager(b)
+            om = OutlineManager(b)
+            ch = sm.state.get('current_chapter', 0)
+            title = om.outline_data.get('book_title', b) if om.outline_data else b
+            console.print(f"  {i}. {title} [dim]({b}) — 第 {ch} 章[/dim]")
+        console.print(f"  {len(books) + 1}. [bold green]➕ 新建书籍[/bold green]")
 
         choice = console.input("\n[bold green]请选择编号: [/bold green]")
         try:
@@ -65,7 +85,6 @@ def select_book():
         except ValueError:
             pass
 
-    # 新建书籍
     book_name = console.input("[bold green]输入新书籍名称（英文或拼音）: [/bold green]").strip()
     if not book_name:
         book_name = "default"
@@ -73,7 +92,7 @@ def select_book():
 
 
 def initialize_project(book_name):
-    """初始化项目：检查大纲与状态，若不存在则引导创世"""
+    """初始化项目"""
     router = LLMRouter()
     state_manager = StateManager(book_name)
     kb = KnowledgeBase()
@@ -85,8 +104,9 @@ def initialize_project(book_name):
             "[bold cyan]请输入你的一句话灵感（例如：修仙+赛博朋克+黑客流）：[/bold cyan] "
         )
 
-        console.print("\n[bold magenta]🧠 正在构建整书大纲架构...[/bold magenta]")
-        outline_str = router.chat(
+        outline_str = spinner_task(
+            "🧠 正在构建整书大纲架构...",
+            router.chat,
             task_type="planner",
             system_prompt=PLANNER_SYSTEM_PROMPT,
             user_prompt=build_planner_user_prompt(inspiration)
@@ -109,14 +129,79 @@ def show_book_status(state_manager, outline_manager):
     fs_count = len(state_manager.state.get('active_foreshadowing', []))
     char_state = state_manager.state.get('character_current_state', '未知')
 
-    table = Table(title="📊 当前书籍状态", show_header=False, box=None, padding=(0, 2))
-    table.add_column("项", style="cyan")
+    pct = min(100, int(current / total * 100)) if total > 0 else 0
+    bar_len = 20
+    filled = int(bar_len * pct / 100)
+    bar = "█" * filled + "░" * (bar_len - filled)
+    color = "green" if pct >= 80 else "yellow" if pct >= 40 else "blue"
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("项", style="cyan", width=8)
     table.add_column("值", style="green")
-    table.add_row("书名", outline_manager.outline_data.get('book_title', '未命名') if outline_manager.outline_data else '未命名')
-    table.add_row("进度", f"第 {current} 章 / 已规划 {total} 章")
-    table.add_row("伏笔", f"{fs_count} 条未回收")
-    table.add_row("主角", char_state[:50] + ("..." if len(char_state) > 50 else ""))
-    console.print(table)
+
+    title = outline_manager.outline_data.get('book_title', '未命名') if outline_manager.outline_data else '未命名'
+    table.add_row("📖 书名", title)
+    table.add_row("📊 进度", f"[{color}]{bar}[/{color}] {current}/{total} 章 ({pct}%)")
+    table.add_row("📌 伏笔", f"{fs_count} 条未回收")
+    table.add_row("👤 主角", char_state[:60] + ("..." if len(char_state) > 60 else ""))
+
+    console.print(Panel(table, title="[bold]当前状态[/bold]", border_style="blue", padding=(0, 1)))
+
+
+def show_help():
+    """显示帮助"""
+    help_table = Table(title="📖 命令帮助", show_header=True, header_style="bold magenta")
+    help_table.add_column("命令", style="cyan", width=6)
+    help_table.add_column("说明", style="white")
+    help_table.add_row("n", "生成下一章正文")
+    help_table.add_row("r", "局部重绘上一章的指定段落")
+    help_table.add_row("l", "浏览已生成的章节列表")
+    help_table.add_row("b", "回退到指定章节（删除后续章节）")
+    help_table.add_row("e", "续写下一卷大纲")
+    help_table.add_row("x", "导出全书为 TXT / Markdown")
+    help_table.add_row("s", "切换书籍")
+    help_table.add_row("h", "显示本帮助")
+    help_table.add_row("q", "退出程序")
+    console.print(help_table)
+
+
+def cmd_browse_chapters(state_manager):
+    """浏览章节列表"""
+    chapters_dir = state_manager.chapters_dir
+    import os
+    if not os.path.exists(chapters_dir):
+        console.print("[bold red]暂无已生成章节。[/bold red]")
+        return
+
+    files = sorted(f for f in os.listdir(chapters_dir) if f.endswith('.txt'))
+    if not files:
+        console.print("[bold red]暂无已生成章节。[/bold red]")
+        return
+
+    console.print("\n[bold cyan]📚 已生成章节：[/bold cyan]")
+    for f in files:
+        ch_num = int(f.replace("chapter_", "").replace(".txt", ""))
+        filepath = os.path.join(chapters_dir, f)
+        size = os.path.getsize(filepath)
+        console.print(f"  第 {ch_num:>3} 章  [dim]({size/1024:.1f} KB)[/dim]")
+
+    choice = console.input("\n[bold green]输入章节号查看内容（回车取消）: [/bold green]").strip()
+    if not choice:
+        return
+    try:
+        ch_num = int(choice)
+        text = state_manager.get_chapter_text(ch_num)
+        if text:
+            console.print(Panel(
+                Markdown(text),
+                title=f"📖 第 {ch_num} 章",
+                border_style="green",
+                padding=(1, 2)
+            ))
+        else:
+            console.print(f"[bold red]第 {ch_num} 章不存在。[/bold red]")
+    except ValueError:
+        console.print("[bold red]请输入数字。[/bold red]")
 
 
 def cmd_rollback(state_manager):
@@ -131,11 +216,15 @@ def cmd_rollback(state_manager):
     try:
         target = int(target)
         if 0 <= target < current:
+            confirm = console.input(
+                f"[bold yellow]⚠️ 将删除第 {target+1}~{current} 章，确认？[y/n]: [/bold yellow]"
+            )
+            if confirm.lower() != 'y':
+                console.print("[dim]已取消。[/dim]")
+                return
             success, msg = state_manager.rollback_to_chapter(target)
-            if success:
-                console.print(f"[bold green]✅ {msg}[/bold green]")
-            else:
-                console.print(f"[bold red]{msg}[/bold red]")
+            icon = "✅" if success else "❌"
+            console.print(f"[bold {'green' if success else 'red'}]{icon} {msg}[/bold {'green' if success else 'red'}]")
         else:
             console.print("[bold red]无效章节号。[/bold red]")
     except ValueError:
@@ -171,7 +260,9 @@ def cmd_extend_outline(router, state_manager, outline_manager):
         active_foreshadowing=state_manager.state.get('active_foreshadowing', [])
     )
 
-    new_vol_str = router.chat(
+    new_vol_str = spinner_task(
+        f"🧠 正在续写第 {summary['next_volume_num']} 卷...",
+        router.chat,
         task_type="planner",
         system_prompt=PLANNER_SYSTEM_PROMPT,
         user_prompt=prompt
@@ -181,7 +272,7 @@ def cmd_extend_outline(router, state_manager, outline_manager):
         console.print("[bold green]✅ 大纲续写成功！[/bold green]")
         outline_manager.print_outline_summary()
     else:
-        console.print("[bold red]大纲续写失败，请重试。[/bold red]")
+        console.print("[bold red]❌ 大纲续写失败，请重试。[/bold red]")
 
 
 def cmd_export(state_manager, book_name):
@@ -190,22 +281,22 @@ def cmd_export(state_manager, book_name):
     choice = console.input("[bold green]请选择: [/bold green]").strip()
     fmt = "md" if choice == "2" else "txt"
     path, msg = export_book(book_name, fmt)
-    if path:
-        console.print(f"[bold green]✅ {msg}[/bold green]")
-    else:
-        console.print(f"[bold red]{msg}[/bold red]")
+    icon = "✅" if path else "❌"
+    console.print(f"[bold {'green' if path else 'red'}]{icon} {msg}[/bold {'green' if path else 'red'}]")
 
 
 def main():
-    console.print("[bold green]🚀 启动 Omni-Writer AI[/bold green]")
+    console.print(Panel(
+        "[bold green]🚀 Omni-Writer AI[/bold green]\n"
+        "[dim]多书管理 | 章节回退 | 大纲续写 | 全书导出 | 章节浏览[/dim]",
+        border_style="blue"
+    ))
 
-    # 选择书籍
     book_name = select_book()
     console.print(f"\n[bold cyan]📖 当前书籍：「{book_name}」[/bold cyan]")
 
     router, state_manager, kb, outline_manager = initialize_project(book_name)
 
-    # 素材库为空时自动注入测试素材
     if kb.collection.count() == 0:
         console.print("[bold yellow]📦 素材库为空，正在注入测试素材...[/bold yellow]")
         raw_material = (
@@ -222,17 +313,26 @@ def main():
     last_sanitized_text = state_manager.get_latest_chapter_text() or ""
 
     while True:
-        console.print("\n" + "=" * 50)
+        console.print()
         show_book_status(state_manager, outline_manager)
         console.print(
             "[bold green]"
-            "n=下一章 | r=局部重绘 | b=回退章节 | e=续写大纲 | x=导出全书 | s=切换书籍 | q=退出"
+            "n=下一章 | r=重绘 | l=浏览章节 | b=回退 | e=续写大纲 | x=导出 | s=切换 | h=帮助 | q=退出"
             "[/bold green]"
         )
         cmd = console.input("[bold green]> [/bold green]").strip().lower()
 
         if cmd == 'q':
+            console.print("[bold cyan]👋 再见！[/bold cyan]")
             break
+
+        elif cmd == 'h':
+            show_help()
+            continue
+
+        elif cmd == 'l':
+            cmd_browse_chapters(state_manager)
+            continue
 
         elif cmd == 's':
             book_name = select_book()
@@ -255,7 +355,6 @@ def main():
             continue
 
         elif cmd == 'r':
-            # ========== 局部重绘模块 ==========
             if not last_sanitized_text:
                 console.print("[bold red]暂无上一章文本可供重绘。[/bold red]")
                 continue
@@ -277,8 +376,9 @@ def main():
             text_before = last_sanitized_text[:idx]
             text_after = last_sanitized_text[idx + len(selected_text):]
 
-            console.print("\n[bold magenta]🖌️ 正在进行激进重绘...[/bold magenta]")
-            redrawn_text = router.chat(
+            redrawn_text = spinner_task(
+                "🖌️ 正在进行激进重绘...",
+                router.chat,
                 task_type="planner",
                 system_prompt=REDRAWER_SYSTEM_PROMPT,
                 user_prompt=build_redrawer_user_prompt(
@@ -286,7 +386,7 @@ def main():
                 )
             )
             console.print("\n[bold green]✨ 重绘结果：[/bold green]")
-            console.print(Markdown(redrawn_text))
+            console.print(Panel(Markdown(redrawn_text), border_style="green"))
 
             replace = console.input(
                 "\n[bold yellow]是否用重绘结果替换原文？[y/n]: [/bold yellow]"
@@ -296,11 +396,10 @@ def main():
                 current_ch = state_manager.state.get('current_chapter', 0)
                 if current_ch > 0:
                     state_manager.save_chapter(current_ch, last_sanitized_text)
-                console.print("[bold green]已替换并同步存档。[/bold green]")
+                console.print("[bold green]✅ 已替换并同步存档。[/bold green]")
             continue
 
         elif cmd == 'n':
-            # ========== 生成下一章完整流水线 ==========
             current_ch = state_manager.state['current_chapter'] + 1
             ch_info = outline_manager.get_next_chapter_info(current_ch)
             chapter_outline = ch_info['outline']
@@ -320,7 +419,9 @@ def main():
                     "主角": "隐藏实力，试图套出对方的底牌",
                     "反派长老": "咄咄逼人，怀疑主角身份，试图打压"
                 }
-                negotiation_dialogue = router.chat(
+                negotiation_dialogue = spinner_task(
+                    "🎭 多 Agent 谈判模拟中...",
+                    router.chat,
                     task_type="planner",
                     system_prompt=NEGOTIATOR_SYSTEM_PROMPT,
                     user_prompt=build_negotiator_user_prompt(
@@ -345,12 +446,12 @@ def main():
             )
             context['retrieved_materials'] = retrieved_materials
 
-            console.print("\n[bold cyan]📝 正在生成正文初稿...[/bold cyan]")
-            user_prompt = build_writer_user_prompt(context)
-            raw_output = router.chat(
+            raw_output = spinner_task(
+                "📝 正在生成正文初稿...",
+                router.chat,
                 task_type="writer",
                 system_prompt=WRITER_SYSTEM_PROMPT,
-                user_prompt=user_prompt
+                user_prompt=build_writer_user_prompt(context)
             )
 
             match = re.search(
@@ -364,10 +465,9 @@ def main():
                 raw_text_part = raw_output
                 json_part = ""
 
-            console.print(
-                "\n[bold red]📡 启动原创性雷达，正在扫描毒点与套路...[/bold red]"
-            )
-            radar_response = router.chat(
+            radar_response = spinner_task(
+                "📡 原创性雷达扫描中...",
+                router.chat,
                 task_type="planner",
                 system_prompt=RADAR_SYSTEM_PROMPT,
                 user_prompt=build_radar_user_prompt(raw_text_part)
@@ -383,15 +483,16 @@ def main():
                     fixed_text = radar_data.get("fixed_text", raw_text_part)
 
                     score_color = "green" if score >= 80 else "red"
-                    issue_panel_text = (
+                    issue_text = (
                         f"得分: [{score_color}]{score}[/{score_color}]\n"
                         f"发现问题:\n- " + "\n- ".join(issues)
                         if issues else "无"
                     )
                     console.print(Panel(
-                        issue_panel_text,
+                        issue_text,
                         title="🚨 原创性雷达扫描报告",
-                        expand=False
+                        expand=False,
+                        border_style=score_color
                     ))
 
                     if score < 80 or issues:
@@ -408,10 +509,9 @@ def main():
                     "[bold red]未能提取雷达 JSON，使用原文本继续。[/bold red]"
                 )
 
-            console.print(
-                "\n[bold red]🛡️ 正在进行 AI 痕迹脱敏与人类化处理...[/bold red]"
-            )
-            sanitized_text = router.chat(
+            sanitized_text = spinner_task(
+                "🛡️ 正在进行 AI 痕迹脱敏与人类化处理...",
+                router.chat,
                 task_type="sanitizer",
                 system_prompt=SANITIZER_SYSTEM_PROMPT,
                 user_prompt=build_sanitizer_user_prompt(checked_text)
@@ -420,19 +520,22 @@ def main():
             final_output = (
                 f"{sanitized_text}\n\n<state_update_json>\n{json_part}\n</state_update_json>"
             )
-            console.print(
-                "\n[bold yellow]🧠 正在更新长程记忆状态...[/bold yellow]"
-            )
+            console.print("\n[bold yellow]🧠 正在更新长程记忆状态...[/bold yellow]")
             state_manager.update_state_from_chapter(final_output)
             state_manager.save_chapter(current_ch, sanitized_text)
             state_manager.create_snapshot()
 
-            console.print(
-                f"\n[bold magenta]📖 第 {current_ch} 章生成完毕 (已脱敏+已自检)：[/bold magenta]"
-            )
-            console.print(Markdown(sanitized_text))
+            console.print(Panel(
+                Markdown(sanitized_text),
+                title=f"📖 第 {current_ch} 章（已脱敏+已自检）",
+                border_style="green",
+                padding=(1, 2)
+            ))
 
             last_sanitized_text = sanitized_text
+
+        else:
+            console.print(f"[dim]未知命令 '{cmd}'，输入 h 查看帮助。[/dim]")
 
 
 if __name__ == "__main__":

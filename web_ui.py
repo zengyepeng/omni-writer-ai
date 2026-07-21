@@ -3,12 +3,13 @@ Omni-Writer AI (全栈工业化终局版)
 Gradio Web 可视化创作控制台
 
 访问地址：http://127.0.0.1:7860
-支持：多本书管理 | 章节回退 | 大纲续写 | 全书导出
+支持：多本书管理 | 章节回退 | 大纲续写 | 全书导出 | 章节浏览 | 进度可视化
 """
 
 import gradio as gr
 import re
 import json
+import os
 import logging
 
 logging.basicConfig(
@@ -36,7 +37,6 @@ StateManager.migrate_legacy_data()
 router = LLMRouter()
 kb = KnowledgeBase()
 
-# 默认书籍
 current_book = "default"
 state_manager = StateManager(current_book)
 outline_manager = OutlineManager(current_book)
@@ -54,22 +54,107 @@ def extract_json_from_text(text):
 
 
 def get_book_choices():
-    """获取书籍选择列表"""
     books = StateManager.list_books()
     if not books:
         books = ["default"]
     return books + ["➕ 新建书籍..."]
 
 
+def get_chapter_list():
+    """获取已生成章节列表"""
+    chapters_dir = state_manager.chapters_dir
+    if not os.path.exists(chapters_dir):
+        return []
+    files = sorted(
+        f for f in os.listdir(chapters_dir) if f.endswith('.txt')
+    )
+    result = []
+    for f in files:
+        ch_num = int(f.replace("chapter_", "").replace(".txt", ""))
+        result.append(f"第 {ch_num} 章")
+    return result
+
+
+def load_chapter(chapter_label):
+    """加载指定章节内容"""
+    if not chapter_label:
+        return "请选择一个章节", ""
+    ch_num = int(chapter_label.replace("第 ", "").replace(" 章", ""))
+    text = state_manager.get_chapter_text(ch_num)
+    if text:
+        return f"✅ 已加载第 {ch_num} 章", text
+    return f"❌ 第 {ch_num} 章不存在", ""
+
+
+def get_progress_html():
+    """生成进度可视化 HTML"""
+    current = state_manager.state.get('current_chapter', 0)
+    total = outline_manager.get_total_chapters()
+    if total == 0:
+        pct = 0
+    else:
+        pct = min(100, int(current / total * 100))
+
+    color = "#22c55e" if pct >= 80 else "#f59e0b" if pct >= 40 else "#3b82f6"
+    bar_width = max(pct, 2)
+
+    return f"""
+    <div style="margin:8px 0;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-size:13px;color:#666;">写作进度</span>
+        <span style="font-size:13px;font-weight:600;color:{color};">{current}/{total} 章 ({pct}%)</span>
+      </div>
+      <div style="background:#e5e7eb;border-radius:6px;height:10px;overflow:hidden;">
+        <div style="background:{color};width:{bar_width}%;height:100%;border-radius:6px;transition:width 0.5s ease;"></div>
+      </div>
+    </div>
+    """
+
+
+def get_foreshadowing_html():
+    """生成伏笔列表 HTML"""
+    fs_list = state_manager.state.get('active_foreshadowing', [])
+    if not fs_list:
+        return "<div style='color:#999;font-size:13px;padding:8px;'>暂无未回收伏笔</div>"
+    items = "".join(
+        f"<li style='margin:4px 0;font-size:13px;color:#555;'>📌 {fs}</li>"
+        for fs in fs_list[-10:]  # 最多显示10条
+    )
+    return f"<ul style='margin:0;padding-left:16px;'>{items}</ul>"
+
+
+def get_status():
+    """获取当前状态"""
+    current = state_manager.state.get('current_chapter', 0)
+    total = outline_manager.get_total_chapters()
+    fs_count = len(state_manager.state.get('active_foreshadowing', []))
+    char_state = state_manager.state.get('character_current_state', '未知')
+    title = outline_manager.outline_data.get('book_title', '未命名') if outline_manager.outline_data else '未命名'
+
+    return (
+        f"📖 {title} | 进度: 第{current}章 / 已规划{total}章 | "
+        f"伏笔: {fs_count}条 | 主角: {char_state[:40]}"
+    )
+
+
+def refresh_all():
+    """刷新所有面板"""
+    return (
+        get_status(),
+        get_progress_html(),
+        get_foreshadowing_html(),
+        gr.update(choices=get_chapter_list()),
+    )
+
+
 # ================= 界面回调函数 =================
 
 def switch_book(book_choice, new_book_name):
-    """切换或创建书籍"""
     global current_book, state_manager, outline_manager
 
     if book_choice == "➕ 新建书籍...":
         if not new_book_name.strip():
-            return "请输入新书籍名称", gr.update(), gr.update()
+            return "请输入新书籍名称", gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
         book_name = new_book_name.strip()
     else:
         book_name = book_choice
@@ -78,19 +163,24 @@ def switch_book(book_choice, new_book_name):
     state_manager = StateManager(book_name)
     outline_manager = OutlineManager(book_name)
 
-    has_outline = outline_manager.outline_data is not None
     status = f"📖 已切换到「{book_name}」"
-    if has_outline:
+    if outline_manager.outline_data:
         status += f" | 书名：{outline_manager.outline_data.get('book_title', '未命名')}"
         status += f" | 进度：第 {state_manager.state.get('current_chapter', 0)} 章"
     else:
         status += " | 尚未创建大纲，请前往「创世引擎」"
 
-    return status, gr.update(choices=get_book_choices(), value=book_name), ""
+    return (
+        status,
+        gr.update(choices=get_book_choices(), value=book_name),
+        get_progress_html(),
+        get_foreshadowing_html(),
+        gr.update(choices=get_chapter_list()),
+        ""
+    )
 
 
 def init_project_ui(inspiration):
-    """初始化项目：生成大纲"""
     if outline_manager.outline_data:
         return "大纲已存在，无需重复生成。", gr.update(visible=True)
 
@@ -119,19 +209,18 @@ def init_project_ui(inspiration):
 
 
 def generate_next_chapter_ui():
-    """生成下一章的完整流水线（生成器，支持逐行输出日志）"""
     current_ch = state_manager.state['current_chapter'] + 1
     ch_info = outline_manager.get_next_chapter_info(current_ch)
     chapter_outline = ch_info['outline']
     scene_type = ch_info['scene_type']
 
     logs = f"📋 本章大纲节点：第 {current_ch} 章 - {chapter_outline} (场景: {scene_type})\n"
-    yield logs, ""
+    yield logs, "", "", ""
 
     negotiation_dialogue = ""
     if scene_type == "negotiation":
         logs += "🎭 检测到智斗场景，启动多 Agent 谈判模拟器...\n"
-        yield logs, ""
+        yield logs, "", "", ""
         characters = {
             "主角": "隐藏实力，试图套出对方的底牌",
             "反派长老": "咄咄逼人，怀疑主角身份，试图打压"
@@ -142,7 +231,7 @@ def generate_next_chapter_ui():
             user_prompt=build_negotiator_user_prompt(chapter_outline, characters)
         )
         logs += "✅ 谈判记录生成完毕。\n"
-        yield logs, ""
+        yield logs, "", "", ""
 
     context = {
         "current_chapter": current_ch,
@@ -153,12 +242,12 @@ def generate_next_chapter_ui():
     }
 
     logs += "🔍 正在从知识库检索相关素材...\n"
-    yield logs, ""
+    yield logs, "", "", ""
     retrieved_materials = kb.retrieve_materials(context['chapter_outline'], top_k=2)
     context['retrieved_materials'] = retrieved_materials
 
     logs += "📝 正在生成正文初稿...\n"
-    yield logs, ""
+    yield logs, "", "", ""
     user_prompt = build_writer_user_prompt(context)
     raw_output = router.chat(
         task_type="writer",
@@ -178,7 +267,7 @@ def generate_next_chapter_ui():
         json_part = ""
 
     logs += "📡 启动原创性雷达，扫描毒点与套路...\n"
-    yield logs, ""
+    yield logs, "", "", ""
     radar_response = router.chat(
         task_type="planner",
         system_prompt=RADAR_SYSTEM_PROMPT,
@@ -186,21 +275,23 @@ def generate_next_chapter_ui():
     )
     radar_json_str = extract_json_from_text(radar_response)
     checked_text = raw_text_part
+    radar_score = "未扫描"
     if radar_json_str:
         try:
             radar_data = json.loads(radar_json_str)
             score = radar_data.get("originality_score", 0)
             issues = radar_data.get("issues_found", [])
+            radar_score = f"{score}分"
             logs += f"🚨 雷达扫描得分: {score} | 发现问题: {len(issues)}处\n"
             if score < 80 or issues:
                 logs += "🛠️ 检测到毒点/套路，已自动触发重写修复...\n"
             checked_text = radar_data.get("fixed_text", raw_text_part)
         except Exception:
             pass
-    yield logs, ""
+    yield logs, "", "", ""
 
     logs += "🛡️ 正在进行 AI 痕迹脱敏与人类化处理...\n"
-    yield logs, ""
+    yield logs, "", "", ""
     sanitized_text = router.chat(
         task_type="sanitizer",
         system_prompt=SANITIZER_SYSTEM_PROMPT,
@@ -214,14 +305,15 @@ def generate_next_chapter_ui():
     state_manager.save_chapter(current_ch, sanitized_text)
     state_manager.create_snapshot()
 
-    logs += "✅ 本章生成完毕！\n"
-    yield logs, sanitized_text
+    logs += f"✅ 第 {current_ch} 章生成完毕！雷达得分: {radar_score}\n"
+
+    # 返回时同时刷新章节列表和进度
+    yield logs, sanitized_text, get_progress_html(), gr.update(choices=get_chapter_list())
 
 
 def redraw_ui(selected_text, instruction, current_chapter_text):
-    """局部重绘功能"""
     if not selected_text or selected_text not in current_chapter_text:
-        return "未能匹配到选定文本", current_chapter_text
+        return "❌ 未能匹配到选定文本，请从右侧文本框中精确复制一段", current_chapter_text
 
     idx = current_chapter_text.find(selected_text)
     text_before = current_chapter_text[:idx]
@@ -244,24 +336,23 @@ def redraw_ui(selected_text, instruction, current_chapter_text):
 
 
 def rollback_ui(target_chapter):
-    """回退章节"""
     try:
         target = int(target_chapter)
-    except ValueError:
-        return "请输入有效章节号"
+    except (ValueError, TypeError):
+        return "❌ 请输入有效章节号", "", get_progress_html(), gr.update()
 
     success, msg = state_manager.rollback_to_chapter(target)
-    return msg
+    icon = "✅" if success else "❌"
+    return f"{icon} {msg}", "", get_progress_html(), gr.update(choices=get_chapter_list())
 
 
 def extend_outline_ui():
-    """续写下一卷大纲"""
     if not outline_manager.outline_data:
-        return "请先创建大纲"
+        return "❌ 请先创建大纲"
 
     volumes = outline_manager.outline_data.get('volumes', [])
     if not volumes:
-        return "大纲为空"
+        return "❌ 大纲为空"
 
     last_vol = volumes[-1]
     summary = {
@@ -286,119 +377,154 @@ def extend_outline_ui():
     )
 
     if outline_manager.extend_outline(new_vol_str):
-        return f"✅ 第 {summary['next_volume_num']} 卷续写成功！"
-    return "续写失败，请重试"
+        return f"✅ 第 {summary['next_volume_num']} 卷续写成功！已追加 {len(new_vol_str)//100} 章"
+    return "❌ 续写失败，请重试"
 
 
 def export_ui(fmt_choice):
-    """导出全书"""
     fmt = "md" if "Markdown" in fmt_choice else "txt"
     path, msg = export_book(current_book, fmt)
-    return msg
-
-
-def get_status():
-    """获取当前状态"""
-    current = state_manager.state.get('current_chapter', 0)
-    total = outline_manager.get_total_chapters()
-    fs_count = len(state_manager.state.get('active_foreshadowing', []))
-    char_state = state_manager.state.get('character_current_state', '未知')
-    title = outline_manager.outline_data.get('book_title', '未命名') if outline_manager.outline_data else '未命名'
-
-    return (
-        f"📖 {title} | 进度: 第{current}章 / 已规划{total}章 | "
-        f"伏笔: {fs_count}条 | 主角: {char_state[:40]}"
-    )
+    icon = "✅" if path else "❌"
+    return f"{icon} {msg}"
 
 
 # ================= Gradio 界面布局 =================
 
-with gr.Blocks(title="Omni-Writer AI", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("""
-    # 🚀 Omni-Writer AI
-    ### 多书管理 | 章节回退 | 大纲续写 | 全书导出
-    """)
+custom_css = """
+.gradio-container { max-width: 1400px !important; }
+.status-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white; border-radius: 12px; padding: 16px 20px;
+    font-size: 14px; line-height: 1.6;
+}
+.status-card b { font-size: 16px; }
+"""
 
-    # 书籍切换栏
+with gr.Blocks(
+    title="Omni-Writer AI",
+    theme=gr.themes.Soft(
+        primary_hue="blue",
+        secondary_hue="purple",
+        neutral_hue="slate"
+    ),
+    css=custom_css
+) as demo:
+
+    # ===== 顶部状态栏 =====
+    with gr.Row(elem_classes="status-card"):
+        with gr.Column(scale=3):
+            status_bar = gr.Textbox(
+                label="", interactive=False, value=get_status(),
+                show_label=False, container=False
+            )
+        with gr.Column(scale=1):
+            gr.Markdown("### 🚀 Omni-Writer AI")
+
+    # ===== 书籍切换 =====
     with gr.Row():
         book_dropdown = gr.Dropdown(
-            choices=get_book_choices(),
-            value=current_book,
-            label="当前书籍",
-            scale=2
+            choices=get_book_choices(), value=current_book,
+            label="📚 当前书籍", scale=2
         )
         new_book_input = gr.Textbox(
-            label="新书籍名",
-            placeholder="输入名称后切换",
-            scale=1,
-            visible=False
+            label="新书籍名", placeholder="输入名称", scale=1, visible=False
         )
-        switch_btn = gr.Button("🔄 切换", scale=1)
-        status_bar = gr.Textbox(label="状态", interactive=False, scale=3, value=get_status())
+        switch_btn = gr.Button("🔄 切换", scale=1, variant="secondary")
 
     def on_book_change(choice):
         return gr.update(visible=(choice == "➕ 新建书籍..."))
 
     book_dropdown.change(on_book_change, inputs=[book_dropdown], outputs=[new_book_input])
-    switch_btn.click(switch_book, inputs=[book_dropdown, new_book_input], outputs=[status_bar, book_dropdown, new_book_input])
 
-    with gr.Tab("创世引擎"):
+    # ===== 进度与伏笔面板 =====
+    with gr.Row():
+        with gr.Column(scale=1):
+            progress_html = gr.HTML(value=get_progress_html(), label="📊 写作进度")
+        with gr.Column(scale=1):
+            foreshadowing_html = gr.HTML(value=get_foreshadowing_html(), label="📌 未回收伏笔")
+
+    # ===== 主 Tab 区 =====
+    with gr.Tab("✨ 创世引擎"):
         gr.Markdown("### 输入一句话灵感，生成整书大纲骨架")
         inspiration_input = gr.Textbox(
-            label="一句话灵感",
-            placeholder="例如：修仙+赛博朋克+黑客流，主角靠代码入侵天道系统"
+            label="💡 一句话灵感",
+            placeholder="例如：修仙+赛博朋克+黑客流，主角靠代码入侵天道系统",
+            lines=2
         )
         with gr.Row():
-            init_btn = gr.Button("⚡ 开始创世", variant="primary")
-        outline_output = gr.Textbox(label="大纲概览", lines=10, interactive=False)
+            init_btn = gr.Button("⚡ 开始创世", variant="primary", size="lg")
+            extend_btn = gr.Button("📖 续写下一卷大纲", size="lg")
+        outline_output = gr.Textbox(label="📋 大纲概览", lines=12, interactive=False)
+        extend_status = gr.Textbox(label="续写状态", interactive=False)
 
-        with gr.Row():
-            extend_btn = gr.Button("📖 续写下一卷大纲")
-            extend_status = gr.Textbox(label="续写状态", interactive=False)
-
-        init_btn.click(init_project_ui, inputs=[inspiration_input], outputs=[outline_output, start_writing_btn := gr.Button(visible=False)])
+        init_btn.click(init_project_ui, inputs=[inspiration_input], outputs=[outline_output, gr.Button(visible=False)])
         extend_btn.click(extend_outline_ui, outputs=[extend_status])
 
-    with gr.Tab("创作流水线"):
+    with gr.Tab("⚙️ 创作流水线"):
         with gr.Row():
             with gr.Column(scale=1):
                 gen_btn = gr.Button("⚙️ 生成下一章", variant="primary", size="lg")
 
                 gr.Markdown("---")
-                gr.Markdown("### 局部重绘")
-                redraw_selected = gr.Textbox(label="待重绘文本", lines=3)
-                redraw_inst = gr.Textbox(label="重绘要求 (可留空)")
-                redraw_btn = gr.Button("🖌️ 局部重绘")
+                gr.Markdown("### 🖌️ 局部重绘")
+                redraw_selected = gr.Textbox(label="待重绘文本（从右侧复制）", lines=3)
+                redraw_inst = gr.Textbox(label="重绘要求（可留空）", placeholder="例如：增加更多微表情描写")
+                redraw_btn = gr.Button("🖌️ 执行重绘")
                 redraw_status = gr.Textbox(label="重绘状态", interactive=False)
 
                 gr.Markdown("---")
-                gr.Markdown("### 章节回退")
+                gr.Markdown("### ⏪ 章节回退")
                 rollback_input = gr.Number(label="回退到第几章", value=1, precision=0)
-                rollback_btn = gr.Button("⏪ 执行回退")
+                rollback_btn = gr.Button("⏪ 执行回退", variant="stop")
                 rollback_status = gr.Textbox(label="回退状态", interactive=False)
 
             with gr.Column(scale=2):
-                log_output = gr.Textbox(label="工业流水线日志", lines=8, interactive=False)
+                log_output = gr.Textbox(label="📟 工业流水线日志", lines=8, interactive=False)
                 chapter_output = gr.Textbox(
-                    label="本章正文 (已脱敏+已自检，可编辑)",
-                    lines=22, interactive=True
+                    label="📄 本章正文（已脱敏+已自检，可编辑）",
+                    lines=24, interactive=True
                 )
 
-        gen_btn.click(generate_next_chapter_ui, outputs=[log_output, chapter_output])
+        gen_btn.click(
+            generate_next_chapter_ui,
+            outputs=[log_output, chapter_output, progress_html, gr.State()]
+        )
         redraw_btn.click(redraw_ui, inputs=[redraw_selected, redraw_inst, chapter_output], outputs=[redraw_status, chapter_output])
-        rollback_btn.click(rollback_ui, inputs=[rollback_input], outputs=[rollback_status])
+        rollback_btn.click(rollback_ui, inputs=[rollback_input], outputs=[rollback_status, chapter_output, progress_html, gr.State()])
 
-    with gr.Tab("导出"):
-        gr.Markdown("### 导出全书")
+    with gr.Tab("📚 章节浏览"):
+        gr.Markdown("### 浏览已生成的章节")
+        with gr.Row():
+            chapter_dropdown = gr.Dropdown(
+                choices=get_chapter_list(), label="选择章节", scale=2
+            )
+            load_btn = gr.Button("📖 加载章节", scale=1)
+        load_status = gr.Textbox(label="加载状态", interactive=False)
+        chapter_viewer = gr.Textbox(label="章节内容", lines=25, interactive=False)
+
+        load_btn.click(load_chapter, inputs=[chapter_dropdown], outputs=[load_status, chapter_viewer])
+
+    with gr.Tab("📦 导出"):
+        gr.Markdown("### 导出全书为单个文件")
         export_fmt = gr.Radio(["TXT", "Markdown"], value="TXT", label="导出格式")
-        export_btn = gr.Button("📦 导出全书", variant="primary")
+        export_btn = gr.Button("📦 导出全书", variant="primary", size="lg")
         export_status = gr.Textbox(label="导出状态", interactive=False)
 
         export_btn.click(export_ui, inputs=[export_fmt], outputs=[export_status])
 
-    # 定时刷新状态栏
+    # ===== 事件绑定 =====
+    switch_btn.click(
+        switch_book,
+        inputs=[book_dropdown, new_book_input],
+        outputs=[status_bar, book_dropdown, progress_html, foreshadowing_html, chapter_dropdown, chapter_output]
+    )
+
+    # 定时刷新
     refresh_timer = gr.Timer(5)
-    refresh_timer.tick(get_status, outputs=[status_bar])
+    refresh_timer.tick(
+        lambda: (get_status(), get_progress_html(), get_foreshadowing_html()),
+        outputs=[status_bar, progress_html, foreshadowing_html]
+    )
 
 
 if __name__ == "__main__":
