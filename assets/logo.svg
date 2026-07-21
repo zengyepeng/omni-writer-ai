@@ -1,0 +1,40 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#1E293B"/>
+    </linearGradient>
+    <linearGradient id="pen" x1="120" y1="120" x2="392" y2="392" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#818CF8"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="320" y1="80" x2="440" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F472B6"/>
+      <stop offset="1" stop-color="#FB923C"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#bg)"/>
+
+  <!-- Circuit dots -->
+  <circle cx="396" cy="150" r="6" fill="#38BDF8" opacity="0.8"/>
+  <circle cx="430" cy="190" r="4" fill="#818CF8" opacity="0.6"/>
+  <circle cx="150" cy="396" r="5" fill="#F472B6" opacity="0.7"/>
+  <path d="M396 150 L430 190" stroke="#38BDF8" stroke-width="2" opacity="0.4"/>
+
+  <!-- Pen nib -->
+  <g transform="rotate(-45 256 256)">
+    <path d="M256 96 L300 240 L256 280 L212 240 Z" fill="url(#pen)"/>
+    <path d="M256 96 L300 240 L256 280 L212 240 Z" fill="none" stroke="#E2E8F0" stroke-width="3" opacity="0.85"/>
+    <circle cx="256" cy="232" r="14" fill="#0F172A" stroke="#E2E8F0" stroke-width="3"/>
+    <path d="M256 246 L256 280" stroke="#E2E8F0" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <!-- AI spark / star -->
+  <path d="M404 120 L416 148 L446 152 L424 172 L432 202 L404 186 L376 202 L384 172 L362 152 L392 148 Z" fill="url(#spark)"/>
+
+  <!-- Text -->
+  <text x="256" y="452" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="700" fill="#F8FAFC" text-anchor="middle" letter-spacing="1">Omni</text>
+  <text x="256" y="452" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="700" fill="#38BDF8" text-anchor="middle" letter-spacing="1" dx="118">·</text>
+</svg>
