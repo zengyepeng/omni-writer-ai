@@ -1,5 +1,5 @@
 """
-赛博网文工业母机 v6.0 (全栈工业化终局版)
+Omni-Writer AI (全栈工业化终局版)
 Gradio Web 可视化创作控制台
 
 访问地址：http://127.0.0.1:7860
@@ -190,9 +190,9 @@ def redraw_ui(selected_text, instruction, current_chapter_text):
 
 # ================= Gradio 界面布局 =================
 
-with gr.Blocks(title="赛博网文工业母机 v6.0", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="Omni-Writer AI", theme=gr.themes.Soft()) as demo:
     gr.Markdown("""
-    # 🚀 赛博网文工业母机 v6.0 (全栈工业化终局版)
+    # 🚀 Omni-Writer AI (全栈工业化终局版)
     ### 灵感 -> 大纲 -> RAG检索 -> 谈判模拟 -> 正文生成 -> 雷达自检 -> 脱敏精修 -> 状态更新
     """)
 

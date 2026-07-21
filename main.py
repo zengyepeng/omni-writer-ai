@@ -1,5 +1,5 @@
 """
-赛博网文工业母机 v6.0 (全栈工业化终局版)
+Omni-Writer AI (全栈工业化终局版)
 CLI 命令行入口 —— 交互式网文创作流水线
 
 流水线：灵感 -> 大纲 -> RAG检索 -> 谈判模拟 -> 正文生成 -> 雷达自检 -> 脱敏精修 -> 状态更新
@@ -67,7 +67,7 @@ def initialize_project():
 
 
 def main():
-    console.print("[bold green]🚀 启动赛博网文工业母机 v6.0 (带自检雷达)[/bold green]")
+    console.print("[bold green]🚀 启动Omni-Writer AI (带自检雷达)[/bold green]")
 
     router, state_manager, kb, outline_manager = initialize_project()
 

@@ -1,5 +1,5 @@
 """
-赛博网文工业母机 v6.0 - 素材结构化与打标入库器
+Omni-Writer AI - 素材结构化与打标入库器
 """
 
 MATERIAL_SYSTEM_PROMPT = """

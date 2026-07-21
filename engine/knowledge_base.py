@@ -1,5 +1,5 @@
 """
-赛博网文工业母机 v6.0 - 多源素材库与 RAG 检索引擎
+Omni-Writer AI - 多源素材库与 RAG 检索引擎
 使用 ChromaDB 实现本地向量存储与语义检索，打破 AI 信息茧房。
 """
 import chromadb
